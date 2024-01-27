@@ -1,4 +1,4 @@
-vim9scrip
+vim9script
 
 import autoload 'utils/selector.vim'
 import autoload 'utils/popup.vim'
@@ -11,6 +11,7 @@ var sep_pattern = '\:\d\+:\d\+:'
 var loading = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
 
 var cmd: string
+# TODO no windows default
 if executable('ag')
     cmd = ag_cmd
 elseif executable('rg')
@@ -103,7 +104,7 @@ def AgJobStart(pattern: string)
         return
     endif
     job_running = 1
-    var cmd_str = printf(cmd, pattern, cwd)
+    var cmd_str = printf(cmd, escape(pattern, '"'), escape(cwd, '"'))
     jid = job_start(cmd_str, {
         out_cb: function('JobHandler'),
         out_mode: 'raw',
@@ -273,6 +274,9 @@ def Profiling()
 enddef
 
 export def Start(windows: dict<any>, ...keyword: list<any>)
+    if cmd == ''
+        echom ['ag or rg or grep is required']
+    endif
     cwd = getcwd()
     cwdlen = len(cwd)
     cur_pattern = ''
@@ -302,7 +306,7 @@ export def Start(windows: dict<any>, ...keyword: list<any>)
     setwinvar(menu_wid, '&wrap', 0)
     ag_update_tid = timer_start(100, function('AgUpdateMenu'), {'repeat': -1})
     if len(keyword) > 0
-        popup.SetPrompt(wids.prompot, keyword[0])
+        popup.SetPrompt(wids.prompt, keyword[0])
     endif
     # Profiling()
 enddef
