@@ -7,8 +7,10 @@ var max_count = 1000
 var rg_cmd = 'rg --column -M200 --vimgrep --max-count=' .. max_count .. ' -F "%s" "%s"'
 var ag_cmd = 'ag --column -W200 --vimgrep --max-count=' .. max_count .. ' -F "%s" "%s"'
 var grep_cmd = 'grep -n -r --max-count=' .. max_count .. ' "%s" "%s"'
+var findstr_cmd = 'FINDSTR /S /N /I /O "%s" "%s/*"'
 var sep_pattern = '\:\d\+:\d\+:'
 var loading = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"]
+var highlight = true
 
 var cmd: string
 # TODO no windows default
@@ -19,6 +21,11 @@ elseif executable('rg')
 elseif executable('grep')
     cmd = grep_cmd
     sep_pattern = '\:\d\+:'
+    highlight = false
+elseif executable('findstr') # for Windows
+    cmd = findstr_cmd
+    sep_pattern = '\:\d\+:'
+    highlight = false
 endif
 
 var cwd: string
@@ -135,7 +142,6 @@ def ResultHandle(lists: list<any>): list<any>
     return [strs, cols, result.dict]
 enddef
 
-
 # async version
 def Input(wid: number, args: dict<any>, ...li: list<any>)
     var pattern = args.str
@@ -144,7 +150,7 @@ def Input(wid: number, args: dict<any>, ...li: list<any>)
 enddef
 
 def UpdatePreviewHl()
-    if !has_key(cur_dict, cur_menu_item) || cmd[: 3] == 'grep' || preview_wid < 0
+    if !has_key(cur_dict, cur_menu_item) || !highlight || preview_wid < 0
         return
     endif
     var [path, linenr, colnr] = ParseAgStr(cur_menu_item)
@@ -245,7 +251,7 @@ def AgUpdateMenu(...li: list<any>)
     endif
 
     var hl_list = cols
-    if cmd[: 3] == 'grep'
+    if !highlight
         hl_list = []
     endif
 
@@ -275,7 +281,8 @@ enddef
 
 export def Start(windows: dict<any>, ...keyword: list<any>)
     if cmd == ''
-        echom ['ag or rg or grep is required']
+        echoe 'Please install ag, rg, grep or findstr to run :FuzzyGrep'
+        return
     endif
     cwd = getcwd()
     cwdlen = len(cwd)
@@ -306,7 +313,7 @@ export def Start(windows: dict<any>, ...keyword: list<any>)
     setwinvar(menu_wid, '&wrap', 0)
     ag_update_tid = timer_start(100, function('AgUpdateMenu'), {'repeat': -1})
     if len(keyword) > 0
-        popup.SetPrompt(wids.prompt, keyword[0])
+        popup.SetPrompt(keyword[0])
     endif
     # Profiling()
 enddef

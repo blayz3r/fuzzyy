@@ -46,12 +46,12 @@ export def UpdateMenu(str_list: list<string>, hl_list: list<list<any>>, ...opts:
         if len(opts) > 0 && opts[0] == 1
             devicons.AddDevicons(str_list)
         endif
-        popup.MenuSetText(menu_wid, str_list)
-        popup.MenuSetHl('select', menu_wid, hl_list)
+        popup.MenuSetText(str_list)
+        popup.MenuSetHl('select', hl_list)
         devicons.AddColor(menu_wid)
     else
-        popup.MenuSetText(menu_wid, str_list)
-        popup.MenuSetHl('select', menu_wid, hl_list)
+        popup.MenuSetText(str_list)
+        popup.MenuSetHl('select', hl_list)
     endif
 enddef
 
@@ -78,6 +78,7 @@ export def GetFt(ft: string): string
     return ft
 enddef
 
+# Search pattern @pattern in a list of strings @li
 # if pattern is empty, return [li, []]
 # params:
 #  - li: list of string to be searched
@@ -86,7 +87,7 @@ enddef
 #      - limit: max number of results
 # return:
 # - a list [str_list, hl_list]
-#   - str_list: list of string to be displayed
+#   - str_list: list of search results
 #   - hl_list: list of highlight positions
 #       - [[line1, col1], [line1, col2], [line2, col1], ...]
 export def FuzzySearch(li: list<string>, pattern: string, ...args: list<any>): list<any>
@@ -271,8 +272,8 @@ def Input(wid: number, args: dict<any>, ...li: list<any>)
          }, [])
     endif
 
-    popup.MenuSetText(menu_wid, ret)
-    popup.MenuSetHl('select', menu_wid, hl_list)
+    popup.MenuSetText(ret)
+    popup.MenuSetHl('select', hl_list)
     if enable_devicons
         devicons.AddColor(menu_wid)
     endif
@@ -349,8 +350,8 @@ export var split_edit_callbacks = {
 # params:
 #   - list: list of string to be selected. can be empty at init state
 #   - opts: dict of options
-#       - comfirm_cb: callback to be called when user select an item.
-#           comfirm_cb(menu_wid, result). result is a list like ['selected item']
+#       - select_cb: callback to be called when user select an item.
+#           select_cb(menu_wid, result). result is a list like ['selected item']
 #       - preview_cb: callback to be called when user move cursor on an item.
 #           preview_cb(menu_wid, result). result is a list like ['selected item', opts]
 #       - input_cb: callback to be called when user input something. If input_cb
@@ -365,8 +366,12 @@ export var split_edit_callbacks = {
 #       - scrollbar: wheather to show scrollbar in the menu window.
 #       - preview_ratio: ratio of the preview window. default 0.5
 # return:
-#   - a list [menu_wid, prompt_wid]
-#   - if has preview = 1, then return [menu_wid, prompt_wid, preview_wid]
+#   A dictionary:
+#    {
+#        menu: menu_wid,
+#        prompt: prompt_wid,
+#        preview: preview_wid,
+#    }
 export def Start(li_raw: list<string>, opts: dict<any>): dict<any>
     cwd = getcwd()
     prompt_str = ''
@@ -385,7 +390,7 @@ export def Start(li_raw: list<string>, opts: dict<any>): dict<any>
     if enable_devicons
          devicons.AddDevicons(li)
     endif
-    popup.MenuSetText(menu_wid, li)
+    popup.MenuSetText(li)
     if enable_devicons
         devicons.AddColor(menu_wid)
     endif

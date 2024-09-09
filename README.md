@@ -14,9 +14,12 @@ It ultilizes vim's native matchfuzzypos function and popup window feature.
 
 - vim > 9.0
     - The maintained version is written in vim9, but it also has a vim8 branch for older vim.
-- any of grep, ag or rg
-- find or fd
+- ag or rg (optional)
+- fd (optional)
 - [vim-devicons](https://github.com/ryanoasis/vim-devicons) (optional)
+
+fuzzyy strives to provide an out-of-box experience by using pre-installed programs
+to handle complex tasks.
 
 ## Install
 
@@ -37,6 +40,7 @@ Plug 'Donaldttt/fuzzyy'
 | FuzzyColors     | search installed colorscheme   | \<leader>fc    |
 | FuzzyInBuffer  \<args> | search lines in current buffer. if argument is given, it will search the \<args> | \<leader>fb    |
 | FuzzyCommands   | search commands                | \<leader>fi    |
+| FuzzyCmdHistory |  search command history  | None    |
 | FuzzyBuffers    | search opened buffers          | \<leader>ft    |
 | FuzzyHighlights | search highlights              | \<leader>fh    |
 | FuzzyMRUFiles | search the most recent used files. set g:enable_fuzzyy_MRU_files = 1 to enable this command(not enable by default)    | \<leader>fm    |
@@ -47,7 +51,7 @@ word under cursor.
     ```vim
         nnoremap <Space>f :FuzzyGrep <C-R><C-W><CR>
     ```
-- FuzzyGrep requires any of grep, ag or rg command.
+- FuzzyGrep requires any of ag, rg, grep or FINDSTR command.
 
 - FuzzyFiles uses find command in unix (if not found it will use vim's glob function,
  which is blocking) or powershell's Get-ChildItem in windows.
@@ -57,7 +61,9 @@ word under cursor.
 
 Arrow keys or `ctrl + p`/ `ctrl + n` moves up/down the menu
 
-`ctrl + u`/`ctrl + d` moves up/down the buffer in preview window
+`ctrl + u`/`ctrl + d` moves up/down the buffer by half page in preview window
+
+`ctrl + i`/`ctrl + f` moves up/down the buffer by one line in preview window
 
 you can set `g:fuzzyy_keymaps` to change these defaults.
 
@@ -87,6 +93,7 @@ nnoremap <silent> <leader>fi :FuzzyCommands<CR>
 nnoremap <silent> <leader>fr :FuzzyGrep<CR>
 nnoremap <silent> <leader>ft :FuzzyBuffers<CR>
 nnoremap <silent> <leader>fh :FuzzyHighlights<CR>
+nnoremap <silent> <leader>fm :FuzzyMRUFiles<CR>
 ```
 
 ## Options
@@ -103,14 +110,23 @@ let g:enable_fuzzyy_keymaps = 0
 " Default to 0
 let g:files_respect_gitignore = 1
 
+" FuzzyFiles will exclude the files/directory in these two lists
+" only work when g:files_respect_gitignore = 0
+" The following is the default
+let g:fuzzyy_files_ignore_file = ['*.beam', '*.so', '*.exe', '*.dll', '*.dump',
+    '*.core', '*.swn', '*.swp']
+let g:fuzzyy_files_ignore_dir = ['.git', '.hg', '.svn', '.rebar', '.eunit']
+
 " Change navigation keymaps
 " The following is the default
 let g:fuzzyy_keymaps = {
 \     'menu_up': ["\<c-p>", "\<Up>"],
 \     'menu_down': ["\<c-n>", "\<Down>"],
 \     'menu_select': ["\<CR>"],
-\     'preview_up': ["\<c-u>"],
-\     'preview_down': ["\<c-d>"],
+\     'preview_up': ["\<c-i>"],
+\     'preview_down': ["\<c-f>"],
+\     'preview_up_half_page': ["\<c-u>"],
+\     'preview_down_half_page': ["\<c-d>"],
 \     'cursor_begining': ["\<c-a>"],          " move cursor to the begining of the line in the prompt
 \     'cursor_end': ["\<c-e>"],               " move cursor to the end of the line in the prompt
 \     'delete_all': ["\<c-k>"],               " delete whole line of the prompt
@@ -127,19 +143,21 @@ let g:fuzzyy_menu_matched_hl = 'cursearch'
 " Default to 1 if vim-devicons is installed, 0 otherwise
 let g:fuzzyy_devicons = 1
 
-" Enable dropdown theme
+" Whether enable dropdown theme
 " Default to 0
-let g:fuzzyy_dropdown = 1
+let g:fuzzyy_dropdown = 0
 
-" Enable FuzzyMRUFiles command.
-" If enabled, the MRU list will be recorded into ~/.vim_mru_files in Unix
-" and ~/_vim_mru_files in Windows
-" Default to 0
+" DEPRECATED: mru is always enabled
+" now this option has no effect
 let g:enable_fuzzyy_MRU_files = 1
 
 " FuzzyMRUFiles default shows MRU files that are in the current project
 " default to 0
 let g:fuzzyy_mru_project_only = 0
+
+" FuzzyBuffers will exclude the buffers in this list
+" default to ['__vista__']
+let g:fuzzyy_buffers_exclude = ['__vista__']
 
 " window layout configuraton
 " you can override it by setting g:fuzzyy_window_layout
@@ -174,7 +192,3 @@ let g:fuzzyy_mru_project_only = 0
     },
 }
 ```
-
-## Credit
-
-The code in autoload/utils/mru.vim is modified from [yegappan/mru](https://github.com/yegappan/mru).

@@ -1,8 +1,9 @@
 vim9script
 var popup_wins: dict<any>
-var triger_userautocmd: number
+var wins = { 'menu': -1, 'prompt': -1, 'preview': -1, 'info': -1 }
 var t_ve = &t_ve
 var guicursor = &guicursor
+var exists_buffers = []
 
 # user can register callback for any key
 var key_callbacks: dict<any>
@@ -11,8 +12,10 @@ var keymaps: dict<any> = {
     'menu_up': ["\<c-p>", "\<Up>"],
     'menu_down': ["\<c-n>", "\<Down>"],
     'menu_select': ["\<CR>"],
-    'preview_up': ["\<c-u>"],
-    'preview_down': ["\<c-d>"],
+    'preview_up': ["\<c-i>"],
+    'preview_down': ["\<c-f>"],
+    'preview_up_half_page': ["\<c-u>"],
+    'preview_down_half_page': ["\<c-d>"],
     'cursor_begining': ["\<c-a>"],
     'cursor_end': ["\<c-e>"],
     'delete_all': ["\<c-k>"],
@@ -25,20 +28,6 @@ keymaps = exists('g:fuzzyy_keymaps') && type(g:fuzzyy_keymaps) == v:t_dict ?
 var menu_matched_hl = exists('g:fuzzyy_menu_matched_hl') ?
     g:fuzzyy_menu_matched_hl : 'cursearch'
 
-# popup_wins has those keys:
-#  bufnr: bufnr of the popup buffer
-#  related_win: list of related windows
-#  close_funcs: list of functions to be called when popup is closed
-#  highlights: list of highlight match in the popup buffer
-def CloseRelatedWins(wid: number, ...li: list<any>)
-    for w in popup_wins[wid].related_win
-        if has_key(popup_wins, w)
-            popup_wins[w].related_win = []
-        endif
-        popup_close(w)
-    endfor
-enddef
-
 export def SetPopupWinProp(wid: number, key: string, val: any)
     if has_key(popup_wins, wid) && has_key(popup_wins[wid], key)
         popup_wins[wid][key] = val
@@ -47,11 +36,22 @@ export def SetPopupWinProp(wid: number, key: string, val: any)
     endif
 enddef
 
+# Called usually when popup window is closed
+# It will only execute when menu window is closed
 # params:
 #   - wid: window id of the popup window
 #   - select: the selected item in the popup window eg. ['selected str']
 def GeneralPopupCallback(wid: number, select: any)
-    CloseRelatedWins(wid)
+    if wid != wins.menu
+        return
+    endif
+    for key in keys(wins)
+        if len(getwininfo(wins[key])) > 0 && wins[key] != wid
+            popup_close(wins[key])
+        endif
+        wins[key] = -1
+    endfor
+
     # only press enter select will be a list
     var has_selection = v:false
     if type(select) == v:t_list
@@ -79,58 +79,43 @@ def GeneralPopupCallback(wid: number, select: any)
     if &guicursor != guicursor
         &guicursor = guicursor
     endif
-    if triger_userautocmd
-        triger_userautocmd = 0
-        if exists('#User#PopupClosed')
-            doautocmd User PopupClosed
-        endif
+    if exists('#User#PopupClosed')
+        doautocmd User PopupClosed
     endif
-    remove(popup_wins, wid)
+
+    popup_wins = {}
 enddef
 
-def CreateBuf(): number
-    noa var bufnr = bufadd('')
-    noa bufload(bufnr)
-    setbufvar(bufnr, '&buflisted', 0)
-    setbufvar(bufnr, '&modeline', 0)
-    setbufvar(bufnr, '&buftype', 'nofile')
-    setbufvar(bufnr, '&swapfile', 0)
-    setbufvar(bufnr, '&undolevels', -1)
-    setbufvar(bufnr, '&modifiable', 1)
-    return bufnr
-enddef
-
-# params
-#   - bufnr: buffer number of the popup buffer
+# Handle situation when Text under cursor in menu window is changed
 # return:
 #   if last result is changed
-def MenuUpdateCursorItem(menu_wid: number): number
-    var bufnr = popup_wins[menu_wid].bufnr
-    var cursorlinepos = line('.', menu_wid)
+def MenuCursorContentChangeCb(): number
+    var bufnr = popup_wins[wins.menu].bufnr
+    var cursorlinepos = line('.', wins.menu)
     var linetext = getbufline(bufnr, cursorlinepos, cursorlinepos)[0]
-    if popup_wins[menu_wid].cursor_item == linetext
+    if popup_wins[wins.menu].cursor_item == linetext
         return 0
     endif
 
-    if has_key(popup_wins[menu_wid], 'move_cb')
-        if type(popup_wins[menu_wid].move_cb) == v:t_func
-            call popup_wins[menu_wid].move_cb(menu_wid, {
+    if has_key(popup_wins[wins.menu], 'move_cb')
+        if type(popup_wins[wins.menu].move_cb) == v:t_func
+            call popup_wins[wins.menu].move_cb(wins.menu, {
                 cursor_item: linetext,
-                win_opts: popup_wins[menu_wid],
-                last_cursor_item: popup_wins[menu_wid].cursor_item
+                win_opts: popup_wins[wins.menu],
+                last_cursor_item: popup_wins[wins.menu].cursor_item
                 })
         endif
     endif
-    popup_wins[menu_wid].cursor_item = linetext
+    popup_wins[wins.menu].cursor_item = linetext
     return 1
 enddef
 
 # set prompt content
 # params
 #   - content: string to be set as prompt
-export def SetPrompt(wid: number, content: string)
-    for c in content
-        PromptFilter(wid, c)
+export def SetPrompt(content: string)
+    for i in range(strchars(content))
+        PromptFilter(wins.prompt, strcharpart(content, i, 1, 1))
     endfor
 enddef
 
@@ -246,7 +231,7 @@ def MenuFilter(wid: number, key: string): number
     endif
 
     if moved
-        MenuUpdateCursorItem(wid)
+        MenuCursorContentChangeCb()
     endif
     return 1
 enddef
@@ -256,13 +241,17 @@ def PreviewFilter(wid: number, key: string): number
         win_execute(wid, 'norm k')
     elseif index(keymaps['preview_down'], key) >= 0
         win_execute(wid, 'norm j')
+    elseif index(keymaps['preview_up_half_page'], key) >= 0
+        win_execute(wid, "norm \<c-u>")
+    elseif index(keymaps['preview_down_half_page'], key) >= 0
+        win_execute(wid, "norm \<c-d>")
     else
         return 0
     endif
     return 1
 enddef
 
-def CreatePopup(bufnr: number, args: dict<any>): number
+def CreatePopup(args: dict<any>): number
     var opts = {
        line:  args.line,
        col:  args.col,
@@ -274,6 +263,7 @@ def CreatePopup(bufnr: number, args: dict<any>): number
        padding:  [0, 0, 0, 0],
        zindex:  1000,
        wrap:  0,
+       buftype: 'popup',
        cursorline: 0,
        callback:  function('GeneralPopupCallback'),
        border:  [1],
@@ -286,8 +276,8 @@ def CreatePopup(bufnr: number, args: dict<any>): number
     endif
 
     # we will put user callback in close_funcs, and call it in GeneralPopupCallback
-    for key in ['filter', 'border', 'borderhighlight', 'highlight', 'borderchars',
-          'scrollbar', 'padding', 'wrap', 'zindex', 'title']
+    for key in ['filter', 'border', 'borderhighlight', 'highlight', 'borderchars', 
+    'scrollbar', 'padding', 'wrap', 'zindex', 'title']
         if has_key(args, key)
             opts[key] = args[key]
         endif
@@ -301,7 +291,7 @@ def CreatePopup(bufnr: number, args: dict<any>): number
     if has_key(opts, 'filter')
         opts.mapping = v:false
     endif
-    var wid = popup_create(bufnr, opts)
+    var wid = popup_create('', opts)
     if has_key(args, 'cursorline') && args.cursorline
         # we don't use popup option 'cursorline' because it is buggy (some
         # colorscheme will make cursorline highlight disappear)
@@ -365,65 +355,72 @@ def NewPopup(args: dict<any>): list<number>
      height:  final_height
      })
 
-    var bufnr = CreateBuf()
-    var wid = CreatePopup(bufnr, opts)
+    var wid = CreatePopup(opts)
+    var bufnr = winbufnr(wid)
+    setbufvar(bufnr, '&buflisted', 0)
+    setbufvar(bufnr, '&modeline', 0)
+    setbufvar(bufnr, '&buftype', 'nofile')
+    setbufvar(bufnr, '&swapfile', 0)
+    setbufvar(bufnr, '&undolevels', -1)
+    setbufvar(bufnr, '&modifiable', 1)
 
     popup_wins[wid].bufnr = bufnr
+    add(exists_buffers, bufnr)
 
     return [wid, bufnr]
 enddef
 
-export def MenuSetText(wid: number, text_list: list<string>)
+export def MenuSetText(text_list: list<string>)
     if type(text_list) != v:t_list
         echoerr 'text must be a list'
     endif
-    if !has_key(popup_wins, wid)
+    if !has_key(popup_wins, wins.menu)
         return
     endif
     var text = text_list
-    var old_cursor_pos = line('$', wid) - line('.', wid)
+    var old_cursor_pos = line('$', wins.menu) - line('.', wins.menu)
 
-    popup_wins[wid].validrow = len(text_list)
-    var textrows = popup_getpos(wid).height - 2
-    if popup_wins[wid].reverse_menu
+    popup_wins[wins.menu].validrow = len(text_list)
+    var textrows = popup_getpos(wins.menu).height - 2
+    if popup_wins[wins.menu].reverse_menu
         text = reverse(text_list)
         if len(text) < textrows
             text = repeat([''], textrows - len(text)) + text
         endif
     endif
 
-    if popup_getoptions(wid).scrollbar
-        var curwidth = popup_getpos(wid).width
-        var noscrollbar_width = popup_wins[wid].noscrollbar_width
+    if popup_getoptions(wins.menu).scrollbar
+        var curwidth = popup_getpos(wins.menu).width
+        var noscrollbar_width = popup_wins[wins.menu].noscrollbar_width
         if len(text) > textrows && curwidth != noscrollbar_width - 1
             var width = noscrollbar_width - 1
-           popup_move(wid, {'minwidth': width, 'maxwidth': width})
+           popup_move(wins.menu, {'minwidth': width, 'maxwidth': width})
         elseif len(text) <= textrows && curwidth != noscrollbar_width
             var width = noscrollbar_width
-            popup_move(wid, {'minwidth': width, 'maxwidth': width})
+            popup_move(wins.menu, {'minwidth': width, 'maxwidth': width})
         endif
     endif
 
-    popup_settext(wid, text)
-    if popup_wins[wid].reverse_menu
-        var new_line_length = line('$', wid)
+    popup_settext(wins.menu, text)
+    if popup_wins[wins.menu].reverse_menu
+        var new_line_length = line('$', wins.menu)
         var cursor_pos = new_line_length - old_cursor_pos
-        win_execute(wid, 'normal! ' .. new_line_length .. 'zb')
-        win_execute(wid, 'normal! ' .. cursor_pos .. 'G')
-        # echom [old_cursor_pos, cursor_pos, line('$')]
+        win_execute(wins.menu, 'normal! ' .. new_line_length .. 'zb')
+        win_execute(wins.menu, 'normal! ' .. cursor_pos .. 'G')
     endif
 
-    MenuUpdateCursorItem(wid)
+    MenuCursorContentChangeCb()
 enddef
 
+# Set Highlight for menu window
 # params:
 #   - wid: popup window id
 #   - hi_list: list of position to highlight eg. [[1,2,3], [1,5]]
-export def MenuSetHl(name: string, wid: number, hl_list_raw: list<any>)
-    if !has_key(popup_wins, wid)
+export def MenuSetHl(name: string, hl_list_raw: list<any>)
+    if !has_key(popup_wins, wins.menu)
         return
     endif
-    clearmatches(wid)
+    clearmatches(wins.menu)
     # pass empty list to matchaddpos will cause error
     if len(hl_list_raw) == 0
         return
@@ -431,16 +428,16 @@ export def MenuSetHl(name: string, wid: number, hl_list_raw: list<any>)
     var hl_list = hl_list_raw
 
     # in case of reverse menu, we need to reverse the hl_list
-    var textrows = popup_getpos(wid).height - 2
+    var textrows = popup_getpos(wins.menu).height - 2
     var height = max([hl_list_raw[-1][0], textrows])
-    if popup_wins[wid].reverse_menu
+    if popup_wins[wins.menu].reverse_menu
         hl_list = reduce(hl_list_raw, (acc, v) => add(acc, [height - v[0] + 1] + v[1 :]), [])
     endif
 
     # in MS-Windows, matchaddpos() has maximum limit of 8 position groups
     var idx = 0
     while idx < len(hl_list)
-        matchaddpos(menu_matched_hl, hl_list[idx : idx + 7 ], 99, -1,  {'window': wid})
+        matchaddpos(menu_matched_hl, hl_list[idx : idx + 7 ], 99, -1,  {'window': wins.menu})
         idx += 8
     endwhile
 enddef
@@ -518,26 +515,19 @@ def PopupPreview(args: dict<any>): number
     return wid
 enddef
 
-# sometimes a layout contains multiple windows, we need to close them all
-# To do that we need to connect them
-def ConnectWin(wins: dict<any>)
-    var allwins = values(wins)
-    for [k, wid] in items(wins)
-        var newlist = reduce(allwins, (acc, v) => v != wid ? add(acc, v) : acc, [])
-        popup_wins[wid].related_win = newlist
-        popup_wins[wid].partids = wins
-    endfor
-enddef
-
 # params:
 #   - opts: options: dictonary contains following keys:
 #       - select_cb: callback function when a value is selected(press enter)
 #       - move_cb: callback function when cursor moves to a new value
 #       - input_cb: callback function when user input something
 # return:
-#   [menu_wid, prompt_wid, preview_wid]
+#   A dictionary:
+#    {
+#        menu: wins.menu,
+#        prompt: wins.prompt,
+#        preview: wins.preview,
+#    }
 export def PopupSelection(user_opts: dict<any>): dict<any>
-    triger_userautocmd = 1
     key_callbacks = has_key(user_opts, 'key_callbacks') ? user_opts.key_callbacks : {}
     var has_preview = has_key(user_opts, 'preview') && user_opts.preview
 
@@ -608,9 +598,8 @@ export def PopupSelection(user_opts: dict<any>): dict<any>
         endif
     endfor
 
-    var menu_wid = PopupMenu(menu_opts)
+    wins.menu = PopupMenu(menu_opts)
 
-    # var prompt_yoffset = popup_wins[menu_wid].line + popup_wins[menu_wid].height
     var prompt_opts = {
         yoffset:  prompt_yoffset,
         xoffset:  xoffset,
@@ -619,25 +608,13 @@ export def PopupSelection(user_opts: dict<any>): dict<any>
         prompt: has_key(user_opts, 'prompt') ? user_opts.prompt : '> ',
         zindex:  1010,
     }
-    var prompt_wid = PopupPrompt(prompt_opts)
-    popup_wins[prompt_wid].partids = {'menu': menu_wid}
+    wins.prompt = PopupPrompt(prompt_opts)
 
-    var connect_wins = {
-        menu:  menu_wid,
-        prompt:  prompt_wid,
-    }
-
-    var ret = {
-        menu: menu_wid,
-        prompt: prompt_wid,
-        preview: -1,
-        info: -1,
-    }
     if has_preview
-        var preview_xoffset =  popup_wins[menu_wid].col + popup_wins[menu_wid].width
-        var menu_row        =  popup_wins[menu_wid].line
-        var prompt_row      =  popup_wins[prompt_wid].line
-        prompt_height   =  popup_wins[prompt_wid].height
+        var preview_xoffset =  popup_wins[wins.menu].col + popup_wins[wins.menu].width
+        var menu_row        =  popup_wins[wins.menu].line
+        var prompt_row      =  popup_wins[wins.prompt].line
+        prompt_height   =  popup_wins[wins.prompt].height
         # var preview_height  =  prompt_row - menu_row + prompt_height
         var preview_height  =   menu_height + prompt_height + 2
         var preview_opts    =  {
@@ -647,13 +624,14 @@ export def PopupSelection(user_opts: dict<any>): dict<any>
             xoffset:  preview_xoffset + 2,
             zindex:  1100,
         }
-        var preview_wid      =  PopupPreview(preview_opts)
-        connect_wins.preview =  preview_wid
-        ret.preview = preview_wid
+        wins.preview      =  PopupPreview(preview_opts)
+        wins.preview = wins.preview
+        popup_wins[wins.preview].partids = wins
     endif
 
     if has_key(user_opts, 'infowin') && user_opts.infowin
-        var [info_wid, info_bufnr] = NewPopup({
+        var info_bufnr: number
+        [wins.info, info_bufnr] = NewPopup({
             width:  menu_width - 1,
             height:  1,
             yoffset:  yoffset + 1,
@@ -662,15 +640,17 @@ export def PopupSelection(user_opts: dict<any>): dict<any>
             zindex:  2000,
             enable_border:  0,
         })
-        connect_wins.info = info_wid
-        ret.info = info_wid
+        wins.info = wins.info
+        popup_wins[wins.info].partids = wins
     endif
+
+    popup_wins[wins.menu].partids = wins
+    popup_wins[wins.prompt].partids = wins
 
     t_ve = &t_ve
     guicursor = &guicursor
     setlocal t_ve=
     # hide cursor in macvim or other guivim
     set guicursor=a:xxx
-    ConnectWin(connect_wins)
-    return ret
+    return wins
 enddef
