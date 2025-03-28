@@ -322,8 +322,8 @@ def CreatePopup(args: dict<any>): number
        cursorline: 0,
        callback: function('GeneralPopupCallback'),
        border: [1],
-       borderchars: ['─', '│', '─', '│', '╭', '╮', '╯', '╰'],
-       borderhighlight: ['fuzzyyBorder'],
+       borderchars:  ['─', '│', '─', '│', '┌', '┐', '┘', '└'],
+       borderhighlight:  ['Todo'],
        highlight: 'fuzzyyNormal', }
 
     if has_key(args, 'enable_border') && !args.enable_border
